@@ -1,3 +1,146 @@
+#Basic workflow example to pull hostname of system involved
+Workflow basicWorkflow
+{
+    Get-WMIObject Win32_ComputerSystem | Select-Object -ExpandProperty name
+}
+
+#Gather objects to run workflow against.  AD is super useful for group managing devices with workflows and invoke-command
+$computers = ((Get-ADComputer -Filter * | Where-Object {$_.Name -like "*diluted*"}) | Where-Object {$_.Name -notlike "*clus*"}).DnsHostName | Sort-Object -Unique
+
+#Run your workflow
+basicWorkflow -PSComputerName $computers
+
+#Something more advanced that shows how sorting isn't an easy thing in workflows
+Workflow get-OSVersioning
+{
+    systeminfo | findstr /B /C:"Host Name" /C:"OS Name" /C:"OS Version"
+}
+
+get-OSVersioning -PSComputerName $computers
+
+#Passing credentials with a workflow
+Workflow send-CredentialViaWorkflow
+{
+    hostname
+    whoami
+}
+
+#Pull your crednetials into a variable with a user prompt
+$credential = Get-Credential -UserName dilutedAD\dilutedadmin -Message "Gimme dem creds boi"
+#Run the workflow with the -PScredential parameter
+send-CredentialViaWorkflow -PSComputerName $computers -PSCredential $credential
+#Take note of the messy order of the output.  Keep this in mind for when we move on to invoke-command
+
+#Using workflows for something currently relevant
+Workflow get-QualCurretKey
+{
+    Get-ItemProperty "HKLM:\software\microsoft\windows\CurrentVersion\QualityCompat\"
+}
+
+#Run your workflow
+get-QualCurretKey -PSComputerName $computers
+#Point out that you can tab complete through registry as if it's a file structure because powershell treats it as a file structure
+
+#Covering some limitations
+Workflow get-OSVersionFailure
+{
+    Get-ComputerInfo | Select-Object CsDNSHostName,OsVersion
+}
+
+get-OSVersionFailure -PSComputerName $computers
+
+#Workflow fails as Get-ComputerInfo is not a supported workflow action.  Other useful powershell functions such as format-list are also not supported. 
+#This is why it's recommened to move remote executions to invoke-command as Workflows are deprecated and don't fully support the Powershell toolbox.
+
+#More examples of workflow short comings
+Workflow get-environmentVariableFailure
+{
+    $env:computername
+}
+
+get-environmentVariableFailure -PSComputerName $computers
+
+#CIM instance doesn't work either.  
+Workflow get-environmentVariableFailure
+{
+    (Get-CIMInstance CIM_ComputerSystem).Name
+}
+
+get-environmentVariableFailure -PSComputerName $computers
+
+#The last two examples both appear to pull the data from local device instead of the remote devices being passed to the workflow
+
+#Moving onto invoke-command and why you should be using it
+#Firstly, workflow has been deprecated in favor of invoke-command
+#Invoke command is easier and cleaner.  Lets work through our previous examples using invoke command and script block
+
+#Gather domain objects to run against
+$computers = ((Get-ADComputer -Filter * | Where-Object {$_.Name -like "*diluted*"}) | Where-Object {$_.Name -notlike "*clus*"}).DnsHostName | Sort-Object -Unique
+
+#So clean, short and effecient
+$scriptblock = {Get-WMIObject Win32_ComputerSystem | Select-Object -ExpandProperty name}
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock
+
+#See how much cleaner?
+$scriptblock = {systeminfo | findstr /B /C:"Host Name" /C:"OS Name" /C:"OS Version"}
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock
+
+#I think you guys get the point but lets keep going
+
+$scriptblock = {
+    hostname 
+    whoami
+}
+$credential = Get-Credential -UserName dilutedAD\dilutedadmin -Message "Gimme dem creds boi"
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock -Credential $credential
+
+#Take note of the proper order.  Command is ran inline for each device one at a time.  Workflows can be powerful for quick and dirty parallel group changes but the formatting gives me an aneurysm
+
+#Things that didn't work in workflows are supported in invoke-command
+
+#Get-ComputerInfo works because invoke-command acts as if the powershell is running locally to the devices passed to it
+$scriptblock = {Get-ComputerInfo | Select-Object CsDNSHostName,OsVersion}
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock
+
+#Environment variables work as well
+$scriptblock = {$env:computername}
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock
+
+#Get-CIMInstance works as well
+$scriptblock = {(Get-CIMInstance CIM_ComputerSystem).Name}
+Invoke-Command -ComputerName $computers -ScriptBlock $scriptblock
+
+#According to my stream chat this was "Nerd Magic"
+
+#As you can see invoke-command is much cleaner and more effective.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Bonus meme
+
+#Below is an example of how a scrub can still write good looking code (thanks to copying other peoples good looking code and changing it to do what you want)
+
 <#
 .Synopsis
     Displays the Windows Version for all discovered Hypervisors.
